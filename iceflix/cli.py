@@ -39,4 +39,5 @@ def authentication_service():
 def client():
     """Handles the IceFlix client CLI command."""
     print("Starting IceFlix client...")
+    print("this is a test using git")
     sys.exit(0)
