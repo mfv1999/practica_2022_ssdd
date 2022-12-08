@@ -29,9 +29,16 @@ class client(Ice.Application):
         self._auth_prx = None  
         self._catlog_prx = None
         self._stream_provider_prx = None
-        
-
-
+        self._stream_controller_prx_ = None
+        self._playing_media_ = False
+        self._media_player_= iceflixrtsp.RTSPPlayer()
+        self.refreshed_token_ = False
+        self.revoke_topic_= None
+        self.revoke_topic_prx = None
+        self.revocations_subscriber = None
+        self.revocations_subscriber_prx = None
+        self.revocations_publisher = None 
+        self.adapter = None
 
     """---------------------------------------------------------------------------------------------------"""
     """ aux methods """
@@ -67,7 +74,17 @@ class client(Ice.Application):
                     sleep(5)
         self._main_prx = main_connection
 
+    def get_admin_token(self):
+        token = input("Introduce el token de administracion")
 
+        is_admin= self._main_prx_isAdmin(token)
+        if(is_admin):
+            self._admin_token_= token
+        else:
+            self._admin_token_= None
+            print("ese token no es de administrador ")
+            input("pulsa enter para continuar")
+            
 
         """------------------------------------------------------------------------------------------------------"""
     def setup_logging():
