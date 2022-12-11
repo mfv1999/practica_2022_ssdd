@@ -85,7 +85,139 @@ class client(Ice.Application):
             print("ese token no es de administrador ")
             input("pulsa enter para continuar")
 
+    def create_prompt(self, servicio: str):
+        if self._username_ and self._admin_token_:
+            if self._playing_media_:
+                return "Admin_Playing>>" + servicio + "@" + self._username_ + "> "
+            return "Admin>>" + servicio + "@" + self._username_ + "> "
+        if self._username_:
+            if self._playing_media_:
+                return "Playing>>" + servicio + "@" + self._username_ + "> "
+            return servicio + "@" + self._username_ + "> "
+        if self._admin_token_:
+            return "Admin>>" + servicio + "@Anónimo> "
+        return servicio + "@Anónimo> "
 
+
+
+    def name_searching(self):
+        ''' Implementa la búsqueda de videos por nombre '''
+        media_list = []
+        full_title = False
+        print("\nOpciones disponibles:")
+        print("1. Buscar medio por nombre completo")
+        print("2. Buscar medio por parte del nombre\n")
+        option = input("Opción (1/2): ")
+        while not option.isdigit() or int(option) < 1 or int(option) > 2:
+            option = input("Inserta una opción válida: ")
+
+        if option == "1":
+            full_title = True
+        elif option == "2":
+            full_title = False
+
+        title = input("\nInsertar titulo: ")
+        while title == "":
+            title = input("\nInsertar titulo: ")
+
+        id_list = self._catalog_prx_.getTilesByName(title, full_title)
+
+        if len(id_list) > 0:
+            for title_id in id_list:
+                try:
+                    media_list.append(self._catalog_prx_.getTile(title_id, self._user_token_))
+                except IceFlix.Unauthorized:
+                    print("Usuario no autorizado")
+                except(IceFlix.WrongMediaId, IceFlix.TemporaryUnavailable):
+                    pass
+        else:
+            return []
+
+        return media_list
+
+
+    def tag_searching(self):
+        media_list = []
+        tag_list = self.ask_for_tags()
+
+        if not tag_list:
+            return -1
+
+        option = input("¿Quieres que tu búsqueda coincida con todas tus etiquetas? (s/n): ")
+        while option not in ('s', 'n'):
+            option = input("Inserta una opción válida: ")
+
+        all_tags = None
+        if option == "s":
+            all_tags = True
+        elif option == "n":
+            all_tags = False
+
+        try:
+            id_list = self._catalog_prx_.getTilesByTags(tag_list, all_tags, self._user_token_)
+        except IceFlix.Unauthorized:
+            print("Usuario no autorizado")
+            return 0
+
+        if len(id_list) > 0:
+            for title_id in id_list:
+                try:
+                    media_list.append(self._catalog_prx_.getTile(title_id, self._user_token_))
+                except(IceFlix.WrongMediaId, IceFlix.TemporaryUnavailable): # pylint: disable=invalid-name
+                    print("No hay un servicio de catalogo disponible")
+                except IceFlix.WrongMediaId:
+                    print("El video no se encuentra en el catalogo")
+        else:
+            return -1
+
+        return media_list
+
+    def ask_for_tags():
+        ''' Implementa la petición de tags por parte del usuario '''
+        tag_list = []
+        print("Inserta sus etiquetas. Para salir, dejar en blanco:")
+
+        while 1:
+            tag = input("Etiqueta: ")
+            if tag == "":
+                break
+            tag_list.append(tag)
+
+        return tag_list
+    
+    def add_tags(self, media_object):
+        
+        tags_list = self.ask_for_tags()
+        try:
+            self._catalog_prx_.addTags(media_object.mediaId, tags_list, self._user_token_)
+        except IceFlix.Unauthorized: # pylint: disable=invalid-name
+            print("Usuario no autorizado")
+            input()
+        except IceFlix.WrongMediaId:
+            print("El video no se encuentra en el catalogo")
+            input()
+        else:
+            print("Etiquetas añadidas correctamente")
+            input("Pulsa enter para continuar...")
+
+        return 0
+
+
+    def remove_tags(self, media_object):
+       
+        tags_list = self.ask_for_tags()
+        try:
+            self._catalog_prx_.removeTags(media_object.mediaId, tags_list, self._user_token_)
+        except IceFlix.Unauthorized: # pylint: disable=invalid-name
+            print("Usuario no autorizado")
+            input()
+        except IceFlix.WrongMediaId:
+            print("El video no se encuentra en el catalogo")
+            input()
+        else:
+            print("Etiquetas eliminadas correctamente")
+            input("Pulsa enter para continuar...")
+        return 0   
         """------------------------------------------------------------------------------------------------------"""
     def setup_logging():
         """Configure the logging."""
@@ -99,11 +231,86 @@ class client(Ice.Application):
         sys.exit(MainApp().main(sys.argv))
 
 
-    def catalog_service():
-        """Handles the `catalogservice` CLI command."""
-        print("Catalog service")
-        sys.exit(0)
+    def catalog_service(self):
+        try:
+            self._catalog_prx_ = self._main_prx_.getCatalog()
+        except IceFlix.TemporaryUnavailable:
+            print("No hay ningún servicio de Catálogo disponible")
+            return 0
 
+        while 1:
+            system("clear")
+            self.format_prompt()  #pylint: disable=too-many-function-args
+            max_option = 3
+            print("Opciones disponibles:")
+            print("1. Búsqueda por nombre")
+            print("2. Búsqueda por etiquetas")
+            print("3. Volver\n")
+            if self._playing_media_:
+                print("4. Detener reproducción")
+                max_option = 4
+
+            option = input(self.create_prompt("CatalogService"))
+            while not option.isdigit() or int(option) < 1 or int(option) > max_option:
+                if option == "":
+                    option = input(self.create_prompt("CatalogService"))
+                else:
+                    option = input("Inserta una opción válida: ")
+
+            if option == "1":
+                media_list = self.name_searching()
+                if len(media_list) == 0:
+                    print("\nNo se han encontrado resultados")
+                    input("Pulsa enter para continuar...")
+                    continue
+
+                selected_media = self.select_media(media_list)
+                if selected_media == -1:
+                    continue
+
+                try:
+                    self.ask_function(selected_media)
+                except IceFlix.Unauthorized: # pylint: disable=invalid-name
+                    print("Usuario no autorizado")
+                    input("Presiona Enter para continuar...")
+                except IceFlix.WrongMediaId:
+                    print("El video no se encuentra en el catalogo")
+                    input("Presiona Enter para continuar...")
+                else:
+                    continue
+
+            elif option == "2":
+                media_list = self.tag_searching()
+                if media_list == -1:
+                    print("\nNo se han encontrado resultados")
+                    input("Pulsa enter para continuar...")
+                    continue
+                if media_list == 0:
+                    input("Pulsa enter para continuar...")
+                    continue
+
+                selected_media = self.select_media(media_list)
+                if selected_media == -1:
+                    continue
+
+                try:
+                    self.ask_function(selected_media)
+                except IceFlix.Unauthorized: # pylint: disable=invalid-name
+                    print("Usuario no autorizado")
+                    input("Presiona Enter para continuar...")
+                except IceFlix.WrongMediaId:
+                    print("El video no se encuentra en el catalogo")
+                    input("Presiona Enter para continuar...")
+                else:
+                    continue
+
+            elif option == "3":
+                return 0
+
+            elif option == "4":
+                self._media_player_.stop()
+                self._stream_controller_prx_.stop()
+                self._playing_media_ = False
 
     def streamprovider_service():
         """Handles the `streamingservice` CLI command."""
@@ -111,11 +318,55 @@ class client(Ice.Application):
         sys.exit(0)
 
 
-    def authentication_service():
-        """Handles the `authenticationservice` CLI command."""
-        print("Authentication service")
-        sys.exit(0)
+    def authentication_service(self):
+        while 1:
+            system("clear")
+            self.format_prompt()  #pylint: disable=too-many-function-args
+            print("1. Añadir usuario")
+            print("2. Eliminar usuario")
+            print("3. Salir")
 
+            option = input(self.create_prompt("AuthenticatorService"))
+            while not option.isdigit() or int(option) < 1 or int(option) > 3:
+                option = input("Inserta una opción válida: ")
+
+            if option == "1":
+                new_user = input("Introduce el nuevo nombre de usuario: ")
+                new_password = getpass.getpass("Nueva Password: ")
+                new_hash_password = hashlib.sha256(new_password.encode()).hexdigest()
+                try:
+                    auth = self._main_prx_.getAuthenticator()
+                    auth.addUser(new_user, new_hash_password, self._admin_token_)
+                except IceFlix.TemporaryUnavailable:
+                    print("No hay ningún servicio de Autenticación disponible")
+                    input()
+                except IceFlix.Unauthorized:
+                    print("Usuario no autorizado como administrador")
+                    input()
+                else:
+                    input("Usuario creado correctamente. Pulsa Enter para continuar...")
+                continue
+
+            if option == "2":
+                delete_user = input("Introduce un usuario válido para eliminarlo: ")
+                try:
+                    auth = self._main_prx_.getAuthenticator()
+                    auth.removeUser(delete_user, self._admin_token_)
+                except IceFlix.TemporaryUnavailable:
+                    print("No hay ningún servicio de Autenticación disponible")
+                    input()
+                except IceFlix.Unauthorized:
+                    print("Usuario no autorizado como administrador")
+                    input()
+                else:
+                    if delete_user == self._username_:
+                        self._username_ = None
+                        self._user_token_ = None
+                    input("Usuario borrado correctamente. Pulsa Enter para continuar...")
+                continue
+
+            if option == "3":
+                return 0
 
     def client(self):
         """Handles the IceFlix client CLI command."""
