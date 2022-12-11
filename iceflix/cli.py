@@ -218,6 +218,66 @@ class client(Ice.Application):
             print("Etiquetas eliminadas correctamente")
             input("Pulsa enter para continuar...")
         return 0   
+
+    def login(self):
+        ''' Implementa la función de iniciar sesión '''
+        if self.logged:
+            print("Ya hay una sesión activa")
+            input()
+            return
+        user = input("Nombre de usuario: ")
+        password = getpass.getpass("Contraseña: ")
+        hash_password = hashlib.sha256(password.encode()).hexdigest()
+        self._password_hash_ = hash_password
+        try:
+            self._auth_prx_ = self._main_prx_.getAuthenticator()
+            self._user_token_ = self._auth_prx_.refreshAuthorization(user, hash_password)
+            self.refreshed_token = True
+
+            communicator = self.communicator()
+            topic_manager = IceStorm.TopicManagerPrx.checkedCast(  #pylint: disable=no-member
+                communicator.propertyToProxy("IceStorm.TopicManager"))
+            try:
+                topic = topic_manager.create(REVOCATIONS_TOPIC)
+            except IceStorm.TopicExists:  #pylint: disable=no-member
+                topic = topic_manager.retrieve(REVOCATIONS_TOPIC)
+            self.revocations_publisher = RevocationsSender(topic)
+            self.revocations_subscriber = RevocationsListener(self)
+            self.revocations_subscriber_prx = self.adapter.addWithUUID(self.revocations_subscriber)
+            self.revoke_topic_prx = topic.subscribeAndGetPublisher({},
+                                                                   self.revocations_subscriber_prx)
+            self.revoke_topic = topic
+            self.logged = True
+
+        except IceFlix.TemporaryUnavailable:
+            print("No hay ningún servicio de Autenticación disponible")
+            input()
+            return
+
+        except IceFlix.Unauthorized:
+            print("Credenciales no válidas")
+            input()
+            return
+        self._username_ = user
+        input("Registrado correctamente. Pulsa Enter para continuar...")
+    
+    
+    def logout(self):
+        ''' Implementa la función de cerrar sesión '''
+        if self.logged:
+            self._username_ = None
+            self._user_token_ = None
+            self._password_hash_ = None
+            self.revoke_topic.unsubscribe(self.revocations_subscriber_prx)
+            self.revoke_topic_prx = None
+            self.revoke_topic = None
+            self.revocations_subscriber = None
+            self.revocations_listener = None
+            self.logged = False
+        else:
+            input("No hay ninguna sesión iniciada. Pulsa Enter para continuar...")
+
+    
         """------------------------------------------------------------------------------------------------------"""
     def setup_logging():
         """Configure the logging."""
@@ -379,6 +439,7 @@ class client(Ice.Application):
         """ pedir proxy del main """
         self.set_main_proxy()
         self.adapter_activate()
+  
 
         """ opciones una vez iniciado con el proxy bien """
 
